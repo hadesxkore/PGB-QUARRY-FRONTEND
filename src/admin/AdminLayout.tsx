@@ -91,7 +91,16 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   // Request notification permission on mount
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
+      // Request permission with better error handling for production
+      Notification.requestPermission().then((permission) => {
+        if (permission === 'granted') {
+          console.log('Notification permission granted');
+        } else {
+          console.log('Notification permission denied');
+        }
+      }).catch((error) => {
+        console.error('Error requesting notification permission:', error);
+      });
     }
   }, []);
 
