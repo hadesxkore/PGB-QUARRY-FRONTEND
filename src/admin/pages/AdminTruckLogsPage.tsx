@@ -27,37 +27,40 @@ import {
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { io, Socket } from 'socket.io-client';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
-interface TruckLog {
+interface AdminTruckLog {
   _id: string;
-  plateNumber: string;
-  brand: string;
-  company: string;
-  logType: 'IN' | 'OUT';
-  logDate: string;
-  logTime: string;
-  user: {
+  quarryId: {
+    _id: string;
+    name: string;
+    location: string;
+    quarryOwner: string;
+  };
+  logType: 'in' | 'out';
+  truckCount: number;
+  notes?: string;
+  loggedBy: {
     _id: string;
     name: string;
     username: string;
   };
+  logDate: string;
   createdAt: string;
+  updatedAt: string;
 }
 
-type LogTypeFilter = 'all' | 'IN' | 'OUT';
+type LogTypeFilter = 'all' | 'in' | 'out';
 type DateRangeType = 'today' | 'week' | 'month' | 'year';
 
-export default function TruckLogsPage() {
-  const [logs, setLogs] = useState<TruckLog[]>([]);
+export default function AdminTruckLogsPage() {
+  const [logs, setLogs] = useState<AdminTruckLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [logTypeFilter, setLogTypeFilter] = useState<LogTypeFilter>('all');
   const [quarryFilter, setQuarryFilter] = useState<string>('all');
   const [date, setDate] = useState<Date>(new Date());
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [pdfDateRange, setPdfDateRange] = useState<DateRangeType>('today');
@@ -65,29 +68,6 @@ export default function TruckLogsPage() {
   const [excelDialogOpen, setExcelDialogOpen] = useState(false);
   const [excelDateRange, setExcelDateRange] = useState<DateRangeType>('today');
   const itemsPerPage = 10;
-  // Initialize WebSocket
-  useEffect(() => {
-    const BACKEND_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-    const newSocket = io(BACKEND_URL, {
-      transports: ['websocket'],
-      autoConnect: true,
-    });
-
-    newSocket.on('connect', () => {
-      console.log('✅ Reports WebSocket connected');
-    });
-
-    newSocket.on('truckLog:created', () => {
-      console.log('📋 New truck log - refreshing data');
-      fetchLogs();
-    });
-
-    setSocket(newSocket);
-
-    return () => {
-      newSocket.disconnect();
-    };
-  }, []);
 
   // Fetch logs
   useEffect(() => {
@@ -109,7 +89,7 @@ export default function TruckLogsPage() {
       });
 
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/truck-logs/all?${params}`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/admin-truck-logs?${params}`,
         {
           headers: { 'Authorization': `Bearer ${token}` },
         }
@@ -130,16 +110,16 @@ export default function TruckLogsPage() {
   // Filter logs
   const filteredLogs = logs.filter(log => {
     if (logTypeFilter !== 'all' && log.logType !== logTypeFilter) return false;
-    if (quarryFilter !== 'all' && log.company !== quarryFilter) return false;
+    if (quarryFilter !== 'all' && log.quarryId.name !== quarryFilter) return false;
     return true;
   });
 
   // Get unique quarries
-  const uniqueQuarries = Array.from(new Set(logs.map(log => log.company)));
+  const uniqueQuarries = Array.from(new Set(logs.map(log => log.quarryId.name)));
 
   // Calculate stats
-  const inCount = filteredLogs.filter(log => log.logType === 'IN').length;
-  const outCount = filteredLogs.filter(log => log.logType === 'OUT').length;
+  const inCount = filteredLogs.filter(log => log.logType === 'in').reduce((sum, log) => sum + log.truckCount, 0);
+  const outCount = filteredLogs.filter(log => log.logType === 'out').reduce((sum, log) => sum + log.truckCount, 0);
 
   // Pagination
   const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
@@ -177,7 +157,7 @@ export default function TruckLogsPage() {
       });
 
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/truck-logs/all?${params}`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/admin-truck-logs?${params}`,
         {
           headers: { 'Authorization': `Bearer ${token}` },
         }
@@ -238,7 +218,7 @@ export default function TruckLogsPage() {
     doc.text('Provincial Government of Bataan', 40, 15);
     
     doc.setFontSize(14);
-    doc.text('Truck Logs Report', 40, 23);
+    doc.text('Admin Truck Logs Report', 40, 23);
     
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
@@ -247,36 +227,38 @@ export default function TruckLogsPage() {
     doc.text(`Generated: ${format(new Date(), 'MMM dd, yyyy hh:mm a')}`, 40, 34);
 
     // Summary Stats
-    const inLogs = pdfLogs.filter((log: TruckLog) => log.logType === 'IN').length;
-    const outLogs = pdfLogs.filter((log: TruckLog) => log.logType === 'OUT').length;
+    const inLogs = pdfLogs.filter((log: AdminTruckLog) => log.logType === 'in').reduce((sum: number, log: AdminTruckLog) => sum + log.truckCount, 0);
+    const outLogs = pdfLogs.filter((log: AdminTruckLog) => log.logType === 'out').reduce((sum: number, log: AdminTruckLog) => sum + log.truckCount, 0);
     
     doc.setFontSize(9);
     doc.text(`Total Logs: ${pdfLogs.length} | Trucks IN: ${inLogs} | Trucks OUT: ${outLogs}`, 14, 42);
 
-    // Table
+    // Table with PURPLE theme
     autoTable(doc, {
       startY: 48,
-      head: [['Type', 'Plate Number', 'Brand', 'Quarry Name', 'Date', 'Time', 'Logged By']],
-      body: pdfLogs.map((log: TruckLog) => [
-        log.logType,
-        log.plateNumber,
-        log.brand,
-        log.company,
+      head: [['Type', 'Quarry', 'Owner', 'Location', 'Count', 'Date', 'Time', 'Admin']],
+      body: pdfLogs.map((log: AdminTruckLog) => [
+        log.logType.toUpperCase(),
+        log.quarryId.name,
+        log.quarryId.quarryOwner,
+        log.quarryId.location,
+        log.truckCount.toString(),
         format(new Date(log.logDate), 'MMM dd, yyyy'),
-        log.logTime,
-        log.user?.name || 'Unknown'
+        format(new Date(log.logDate), 'hh:mm a'),
+        log.loggedBy?.name || 'Unknown'
       ]),
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [71, 85, 105], textColor: 255, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
+      styles: { fontSize: 7, cellPadding: 1.5 },
+      headStyles: { fillColor: [147, 51, 234], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [245, 243, 255] },
       columnStyles: {
-        0: { cellWidth: 15, halign: 'center' },
-        1: { cellWidth: 25 },
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 30 },
         2: { cellWidth: 25 },
-        3: { cellWidth: 35 },
-        4: { cellWidth: 25 },
-        5: { cellWidth: 20 },
-        6: { cellWidth: 30 }
+        3: { cellWidth: 28 },
+        4: { cellWidth: 12, halign: 'center' },
+        5: { cellWidth: 22 },
+        6: { cellWidth: 18 },
+        7: { cellWidth: 23 }
       },
     });
 
@@ -313,7 +295,7 @@ export default function TruckLogsPage() {
     const doc = await generatePDF(pdfDateRange);
     if (doc) {
       const { start, end } = getDateRange(pdfDateRange);
-      const filename = `Truck_Logs_${format(start, 'MMM_dd_yyyy')}_to_${format(end, 'MMM_dd_yyyy')}.pdf`;
+      const filename = `Admin_Truck_Logs_${format(start, 'MMM_dd_yyyy')}_to_${format(end, 'MMM_dd_yyyy')}.pdf`;
       doc.save(filename);
       toast.success('PDF downloaded successfully!');
     }
@@ -330,21 +312,22 @@ export default function TruckLogsPage() {
 
     // Prepare data for Excel
     const { start, end } = getDateRange(excelDateRange);
-    const inLogs = excelLogs.filter((log: TruckLog) => log.logType === 'IN').length;
-    const outLogs = excelLogs.filter((log: TruckLog) => log.logType === 'OUT').length;
+    const inLogs = excelLogs.filter((log: AdminTruckLog) => log.logType === 'in').reduce((sum: number, log: AdminTruckLog) => sum + log.truckCount, 0);
+    const outLogs = excelLogs.filter((log: AdminTruckLog) => log.logType === 'out').reduce((sum: number, log: AdminTruckLog) => sum + log.truckCount, 0);
 
     // Create workbook
     const wb = XLSX.utils.book_new();
 
     // Logs sheet (FIRST - so it opens by default)
-    const logsData = excelLogs.map((log: TruckLog) => ({
-      'Type': log.logType,
-      'Plate Number': log.plateNumber,
-      'Brand': log.brand,
-      'Quarry Name': log.company,
+    const logsData = excelLogs.map((log: AdminTruckLog) => ({
+      'Type': log.logType.toUpperCase(),
+      'Quarry Name': log.quarryId.name,
+      'Owner': log.quarryId.quarryOwner,
+      'Location': log.quarryId.location,
+      'Truck Count': log.truckCount,
       'Date': format(new Date(log.logDate), 'MMM dd, yyyy'),
-      'Time': log.logTime,
-      'Logged By': log.user?.name || 'Unknown'
+      'Time': format(new Date(log.logDate), 'hh:mm a'),
+      'Logged By': log.loggedBy?.name || 'Unknown'
     }));
 
     const logsWS = XLSX.utils.json_to_sheet(logsData);
@@ -352,20 +335,21 @@ export default function TruckLogsPage() {
     // Set column widths
     logsWS['!cols'] = [
       { wch: 10 },  // Type
-      { wch: 15 },  // Plate Number
-      { wch: 15 },  // Brand
       { wch: 25 },  // Quarry Name
+      { wch: 20 },  // Owner
+      { wch: 20 },  // Location
+      { wch: 12 },  // Truck Count
       { wch: 15 },  // Date
       { wch: 12 },  // Time
       { wch: 20 }   // Logged By
     ];
 
-    XLSX.utils.book_append_sheet(wb, logsWS, 'Truck Logs');
+    XLSX.utils.book_append_sheet(wb, logsWS, 'Admin Truck Logs');
 
     // Summary sheet (SECOND)
     const summaryData = [
       ['Provincial Government of Bataan'],
-      ['Truck Logs Report'],
+      ['Admin Truck Logs Report'],
       [''],
       ['Period:', `${format(start, 'MMM dd, yyyy')} - ${format(end, 'MMM dd, yyyy')}`],
       ['Generated:', format(new Date(), 'MMM dd, yyyy hh:mm a')],
@@ -380,7 +364,7 @@ export default function TruckLogsPage() {
     XLSX.utils.book_append_sheet(wb, summaryWS, 'Summary');
 
     // Generate filename and download
-    const filename = `Truck_Logs_${format(start, 'MMM_dd_yyyy')}_to_${format(end, 'MMM_dd_yyyy')}.xlsx`;
+    const filename = `Admin_Truck_Logs_${format(start, 'MMM_dd_yyyy')}_to_${format(end, 'MMM_dd_yyyy')}.xlsx`;
     XLSX.writeFile(wb, filename);
     
     toast.success('Excel file downloaded successfully!');
@@ -392,8 +376,8 @@ export default function TruckLogsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Truck Logs</h2>
-          <p className="text-sm text-slate-500">Real-time truck movement logs from all quarries</p>
+          <h2 className="text-2xl font-bold text-slate-900">Admin Truck Logs</h2>
+          <p className="text-sm text-slate-500">Manual counting records by administrators</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={fetchLogs} variant="outline" size="sm" className="gap-2 h-8 text-xs">
@@ -431,7 +415,7 @@ export default function TruckLogsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-green-600">{inCount}</div>
-            <p className="text-xs text-slate-500 mt-1">Entry logs</p>
+            <p className="text-xs text-slate-500 mt-1">Total counted</p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-red-500">
@@ -443,7 +427,7 @@ export default function TruckLogsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-red-600">{outCount}</div>
-            <p className="text-xs text-slate-500 mt-1">Exit logs</p>
+            <p className="text-xs text-slate-500 mt-1">Total counted</p>
           </CardContent>
         </Card>
       </div>
@@ -454,7 +438,7 @@ export default function TruckLogsPage() {
           <div className="flex flex-col gap-3">
             {/* Title and Filters Row */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <CardTitle className="text-lg">Truck Logs</CardTitle>
+              <CardTitle className="text-lg">Admin Truck Logs</CardTitle>
               
               {/* Quarry and Type Filters - Top Right */}
               <div className="flex flex-col sm:flex-row gap-2">
@@ -480,13 +464,13 @@ export default function TruckLogsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Logs</SelectItem>
-                    <SelectItem value="IN">
+                    <SelectItem value="in">
                       <div className="flex items-center gap-2">
                         <ArrowDownToLine className="h-3.5 w-3.5 text-green-600" />
                         Truck IN
                       </div>
                     </SelectItem>
-                    <SelectItem value="OUT">
+                    <SelectItem value="out">
                       <div className="flex items-center gap-2">
                         <ArrowUpFromLine className="h-3.5 w-3.5 text-red-600" />
                         Truck OUT
@@ -535,10 +519,12 @@ export default function TruckLogsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[80px]">Type</TableHead>
-                      <TableHead>Plate Number</TableHead>
-                      <TableHead className="hidden md:table-cell">Brand</TableHead>
                       <TableHead>Quarry Name</TableHead>
-                      <TableHead>Time</TableHead>
+                      <TableHead className="hidden md:table-cell">Owner</TableHead>
+                      <TableHead className="hidden lg:table-cell">Location</TableHead>
+                      <TableHead className="w-[80px]">Count</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="hidden xl:table-cell">Time</TableHead>
                       <TableHead className="hidden lg:table-cell">Logged By</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -547,28 +533,32 @@ export default function TruckLogsPage() {
                       <TableRow key={log._id}>
                         <TableCell>
                           <Badge 
-                            variant={log.logType === 'IN' ? 'default' : 'destructive'}
+                            variant={log.logType === 'in' ? 'default' : 'destructive'}
                             className={cn(
                               'gap-1',
-                              log.logType === 'IN' ? 'bg-green-600' : ''
+                              log.logType === 'in' ? 'bg-green-600' : ''
                             )}
                           >
-                            {log.logType === 'IN' ? (
+                            {log.logType === 'in' ? (
                               <ArrowDownToLine className="h-3 w-3" />
                             ) : (
                               <ArrowUpFromLine className="h-3 w-3" />
                             )}
-                            {log.logType}
+                            {log.logType.toUpperCase()}
                           </Badge>
                         </TableCell>
-                        <TableCell className="font-semibold">{log.plateNumber}</TableCell>
+                        <TableCell className="font-semibold">{log.quarryId.name}</TableCell>
                         <TableCell className="hidden md:table-cell text-muted-foreground">
-                          {log.brand}
+                          {log.quarryId.quarryOwner}
                         </TableCell>
-                        <TableCell>{log.company}</TableCell>
-                        <TableCell className="font-medium">{log.logTime}</TableCell>
+                        <TableCell className="hidden lg:table-cell text-muted-foreground text-sm">
+                          {log.quarryId.location}
+                        </TableCell>
+                        <TableCell className="font-bold text-center">{log.truckCount}</TableCell>
+                        <TableCell className="font-medium">{format(new Date(log.logDate), 'MMM dd, yyyy')}</TableCell>
+                        <TableCell className="hidden xl:table-cell text-muted-foreground">{format(new Date(log.logDate), 'hh:mm a')}</TableCell>
                         <TableCell className="hidden lg:table-cell text-muted-foreground">
-                          {log.user?.name || 'Unknown'}
+                          {log.loggedBy?.name || 'Unknown'}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -636,7 +626,7 @@ export default function TruckLogsPage() {
       <Dialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-xl">Export Truck Logs PDF</DialogTitle>
+            <DialogTitle className="text-xl">Export Admin Truck Logs PDF</DialogTitle>
             <DialogDescription>
               Select the date range for the logs you want to export
             </DialogDescription>

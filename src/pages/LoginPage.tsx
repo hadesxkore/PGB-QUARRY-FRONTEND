@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { authService } from '@/services/authService';
 import { useAuthStore } from '@/store/authStore';
+import { toast } from 'sonner';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -20,6 +21,8 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    
     setError('');
     setIsLoading(true);
 
@@ -30,24 +33,34 @@ export default function LoginPage() {
         // Store auth data in Zustand
         login(response.token, response.user);
         
-        // Redirect to dashboard (you'll need to implement routing)
-        window.location.href = '/dashboard';
+        // Show success toast
+        toast.success('Login Successful', {
+          description: `Welcome back, ${response.user.name}!`,
+        });
+        
+        // Small delay to show the toast before redirect
+        setTimeout(() => {
+          window.location.href = '/dashboard';
+        }, 500);
       }
       
     } catch (err: any) {
+      console.error('Login error:', err);
       const errorMessage = err.response?.data?.message || 'Invalid username or password. Please try again.';
       setError(errorMessage);
-    } finally {
+      toast.error('Login Failed', {
+        description: errorMessage,
+      });
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 p-4">
+    <div className="min-h-screen flex items-start justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 p-4 pt-16">
       <div className="w-full max-w-md">
         {/* Logo and Title Section */}
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-6">
+        <div className="text-center mb-6">
+          <div className="flex justify-center mb-4">
             <div className="relative">
               <div className="absolute inset-0 bg-blue-500/20 blur-2xl rounded-full"></div>
               <img 
@@ -57,10 +70,10 @@ export default function LoginPage() {
               />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">
+          <h1 className="text-2xl font-bold text-slate-900 mb-1">
             QuarryWebSystem
           </h1>
-          <p className="text-slate-600">
+          <p className="text-sm text-slate-600">
             Provincial Government of Bataan
           </p>
         </div>
@@ -72,7 +85,7 @@ export default function LoginPage() {
               Admin Login
             </CardTitle>
             <CardDescription className="text-center">
-              Enter your credentials to access the system
+              Sign in to access the admin dashboard
             </CardDescription>
           </CardHeader>
           
@@ -159,7 +172,7 @@ export default function LoginPage() {
             {/* Footer Note */}
             <div className="mt-6 text-center">
               <p className="text-xs text-slate-500">
-                Only authorized administrators can access this system
+                For admin and user access only
               </p>
             </div>
           </CardContent>

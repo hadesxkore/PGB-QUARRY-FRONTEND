@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { io, Socket } from 'socket.io-client';
 import { useAdminStore } from '@/store/adminStore';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,10 @@ import {
   LogOut,
   Menu,
   ChevronLeft,
+  ArrowDownToLine,
+  ArrowUpFromLine,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 interface AdminLayoutProps {
@@ -23,7 +27,10 @@ interface AdminLayoutProps {
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'quarry', label: 'Quarry Management', icon: Mountain },
-  { id: 'trucks', label: 'Truck Logs', icon: Truck },
+  { id: 'manual-truck-in', label: 'Manual Truck In', icon: ArrowDownToLine },
+  { id: 'manual-truck-out', label: 'Manual Truck Out', icon: ArrowUpFromLine },
+  { id: 'trucks', label: 'Users Truck Logs', icon: Truck, hasBadge: true },
+  { id: 'admin-truck-logs', label: 'Admin Truck Logs', icon: FileText },
   { id: 'cctv', label: 'CCTV Snapshots', icon: Camera },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'users', label: 'User Management', icon: Users },
@@ -33,6 +40,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const { sidebarOpen, currentPage, toggleSidebar, setCurrentPage } = useAdminStore();
   const { user, logout } = useAuthStore();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [newLogsCount, setNewLogsCount] = useState(0);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
   const handleLogout = () => {
     logout();
@@ -42,7 +51,122 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const handleMenuClick = (pageId: string) => {
     setCurrentPage(pageId);
     setIsMobileMenuOpen(false);
+    
+    // Clear badge count when clicking Users Truck Logs
+    if (pageId === 'trucks') {
+      setNewLogsCount(0);
+      // Store in localStorage that user has viewed the logs
+      localStorage.setItem('lastViewedTruckLogs', new Date().toISOString());
+    }
   };
+
+  // Fetch unread logs count on mount
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      try {
+        const authStorage = localStorage.getItem('auth-storage');
+        const token = authStorage ? JSON.parse(authStorage).state.token : null;
+        const lastViewed = localStorage.getItem('lastViewedTruckLogs') || new Date(0).toISOString();
+
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/truck-logs/all?startDate=${lastViewed}`,
+          {
+            headers: { 'Authorization': `Bearer ${token}` },
+          }
+        );
+
+        if (response.ok) {
+          const result = await response.json();
+          const count = result.data?.length || 0;
+          setNewLogsCount(count);
+        }
+      } catch (error) {
+        console.error('Error fetching unread count:', error);
+      }
+    };
+
+    fetchUnreadCount();
+  }, []);
+
+  // Request notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Function to show push notification
+  const showPushNotification = (logData?: any) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      console.log('Push notification data:', logData); // Debug log
+      
+      let notificationBody = 'A new truck log has been added to the system';
+      
+      if (logData) {
+        // Get the first log entry if logs array exists
+        const logEntry = logData.logs?.[0] || logData;
+        
+        const logType = (logEntry.logType || logData.logType || 'IN/OUT').toUpperCase();
+        // Try multiple possible paths for quarry name
+        const quarryName = logEntry.company
+          || logData.company
+          || logData.quarry?.name 
+          || logData.quarryName 
+          || logData.truck?.quarry?.name
+          || logData.quarryId?.name
+          || 'a quarry';
+        
+        notificationBody = `Truck logged ${logType} at ${quarryName}`;
+      }
+      
+      const notification = new Notification('New Truck Log Added', {
+        body: notificationBody,
+        icon: '/images/bataanlogo.png',
+        badge: '/images/bataanlogo.png',
+        tag: 'truck-log-notification',
+        requireInteraction: false,
+        silent: false,
+      });
+
+      // Auto close after 5 seconds
+      setTimeout(() => notification.close(), 5000);
+
+      // Click handler to navigate to truck logs
+      notification.onclick = () => {
+        window.focus();
+        setCurrentPage('trucks');
+        notification.close();
+      };
+    }
+  };
+
+  // Initialize WebSocket for real-time notifications
+  useEffect(() => {
+    const BACKEND_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+    const newSocket = io(BACKEND_URL, {
+      transports: ['websocket'],
+      autoConnect: true,
+    });
+
+    newSocket.on('connect', () => {
+      console.log('✅ Admin Layout WebSocket connected');
+    });
+
+    newSocket.on('truckLog:created', (data?: any) => {
+      // Only increment if not currently viewing the truck logs page
+      if (currentPage !== 'trucks') {
+        setNewLogsCount(prev => prev + 1);
+        // Show push notification
+        showPushNotification(data);
+      }
+    });
+
+    setSocket(newSocket);
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, [currentPage]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -121,7 +245,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                 key={item.id}
                 variant={isActive ? 'default' : 'ghost'}
                 className={cn(
-                  'w-full justify-start gap-3 transition-all',
+                  'w-full justify-start gap-3 transition-all relative',
                   !sidebarOpen && 'justify-center px-2',
                   isActive && 'bg-blue-500 text-white hover:bg-blue-600',
                   !isActive && 'text-slate-700 hover:bg-slate-100'
@@ -130,6 +254,16 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
               >
                 <Icon className={cn('h-5 w-5', sidebarOpen ? 'mr-0' : 'mr-0')} />
                 {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                {item.hasBadge && newLogsCount > 0 && (
+                  <Badge 
+                    className={cn(
+                      'absolute bg-red-500 text-white text-xs px-1.5 min-w-[20px] h-5 flex items-center justify-center',
+                      sidebarOpen ? 'right-2' : 'top-0 right-0 -translate-y-1/4 translate-x-1/4'
+                    )}
+                  >
+                    {newLogsCount > 99 ? '99+' : newLogsCount}
+                  </Badge>
+                )}
               </Button>
             );
           })}

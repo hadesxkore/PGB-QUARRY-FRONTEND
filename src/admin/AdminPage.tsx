@@ -3,6 +3,9 @@ import { useAdminStore } from '@/store/adminStore';
 import DashboardPage from './pages/DashboardPage';
 import QuarryManagementPage from './pages/QuarryManagementPage';
 import TruckLogsPage from './pages/TruckLogsPage';
+import AdminTruckLogsPage from './pages/AdminTruckLogsPage';
+import ManualTruckInLogsPage from './pages/ManualTruckInLogsPage';
+import ManualTruckOutLogsPage from './pages/ManualTruckOutLogsPage';
 import CCTVSnapshotsPage from './pages/CCTVSnapshotsPage';
 import ReportsPage from './pages/ReportsPage';
 import UserManagementPage from './pages/UserManagementPage';
@@ -18,6 +21,12 @@ export default function AdminPage() {
         return <QuarryManagementPage />;
       case 'trucks':
         return <TruckLogsPage />;
+      case 'admin-truck-logs':
+        return <AdminTruckLogsPage />;
+      case 'manual-truck-in':
+        return <ManualTruckInLogsPage />;
+      case 'manual-truck-out':
+        return <ManualTruckOutLogsPage />;
       case 'cctv':
         return <CCTVSnapshotsPage />;
       case 'reports':
