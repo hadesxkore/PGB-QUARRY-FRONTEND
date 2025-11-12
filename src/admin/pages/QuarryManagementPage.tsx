@@ -9,11 +9,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Search, MapPin, FileText, Eye, RefreshCw, User, Calendar, Edit, Phone, Trash2 } from 'lucide-react';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Plus, Search, MapPin, FileText, Eye, RefreshCw, User, Calendar, Edit, Phone, Trash2, CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { io, Socket } from 'socket.io-client';
 import { getMunicipalities, getBarangays } from '@/data/bataanLocations';
+import { cn } from '@/lib/utils';
 
 interface Quarry {
   _id: string;
@@ -21,8 +24,11 @@ interface Quarry {
   location: string;
   operator: string;
   permitNumber: string;
+  dateOfIssuance?: string;
+  dateOfExpiration?: string;
   status: 'Active' | 'Inactive' | 'Pending';
-  quarryOwner: string;
+  proponent: string;
+  area?: number;
   contactNumber?: string;
   description?: string;
   addedBy: {
@@ -53,8 +59,11 @@ export default function QuarryManagementPage() {
     location: '',
     operator: '',
     permitNumber: '',
+    dateOfIssuance: undefined as Date | undefined,
+    dateOfExpiration: undefined as Date | undefined,
     status: 'Active' as 'Active' | 'Inactive' | 'Pending',
-    quarryOwner: '',
+    proponent: '',
+    area: '',
     contactNumber: '',
     description: ''
   });
@@ -138,7 +147,12 @@ export default function QuarryManagementPage() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify(formData)
+          body: JSON.stringify({
+            ...formData,
+            dateOfIssuance: formData.dateOfIssuance ? formData.dateOfIssuance.toISOString() : undefined,
+            dateOfExpiration: formData.dateOfExpiration ? formData.dateOfExpiration.toISOString() : undefined,
+            area: formData.area ? parseFloat(formData.area) : undefined,
+          })
         }
       );
 
@@ -156,8 +170,11 @@ export default function QuarryManagementPage() {
         location: '',
         operator: '',
         permitNumber: '',
+        dateOfIssuance: undefined,
+        dateOfExpiration: undefined,
         status: 'Active',
-        quarryOwner: '',
+        proponent: '',
+        area: '',
         contactNumber: '',
         description: ''
       });
@@ -191,7 +208,7 @@ export default function QuarryManagementPage() {
       if (response.ok) {
         const result = await response.json();
         const user = result.data.find((u: any) => 
-          u.name.toLowerCase() === quarry.quarryOwner.toLowerCase() && u.role === 'user'
+          u.name.toLowerCase() === quarry.proponent.toLowerCase() && u.role === 'user'
         );
         setAssociatedUser(user || null);
       }
@@ -208,8 +225,11 @@ export default function QuarryManagementPage() {
       location: quarry.location,
       operator: quarry.operator,
       permitNumber: quarry.permitNumber,
+      dateOfIssuance: quarry.dateOfIssuance ? new Date(quarry.dateOfIssuance) : undefined,
+      dateOfExpiration: quarry.dateOfExpiration ? new Date(quarry.dateOfExpiration) : undefined,
       status: quarry.status,
-      quarryOwner: quarry.quarryOwner,
+      proponent: quarry.proponent,
+      area: quarry.area?.toString() || '',
       contactNumber: quarry.contactNumber || '',
       description: quarry.description || ''
     });
@@ -239,8 +259,11 @@ export default function QuarryManagementPage() {
             location: formData.location,
             operator: formData.operator,
             permitNumber: formData.permitNumber,
+            dateOfIssuance: formData.dateOfIssuance ? formData.dateOfIssuance.toISOString() : undefined,
+            dateOfExpiration: formData.dateOfExpiration ? formData.dateOfExpiration.toISOString() : undefined,
             status: formData.status,
-            quarryOwner: formData.quarryOwner,
+            proponent: formData.proponent,
+            area: formData.area ? parseFloat(formData.area) : undefined,
             contactNumber: formData.contactNumber,
             description: formData.description,
           }),
@@ -260,7 +283,7 @@ export default function QuarryManagementPage() {
               'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify({
-              name: formData.quarryOwner,
+              name: formData.proponent,
               contactNumber: formData.contactNumber,
               location: formData.location,
               company: formData.name,
@@ -282,8 +305,11 @@ export default function QuarryManagementPage() {
         location: '',
         operator: '',
         permitNumber: '',
+        dateOfIssuance: undefined,
+        dateOfExpiration: undefined,
         status: 'Active',
-        quarryOwner: '',
+        proponent: '',
+        area: '',
         contactNumber: '',
         description: ''
       });
@@ -324,9 +350,9 @@ export default function QuarryManagementPage() {
 
   const filteredQuarries = quarries.filter(
     (quarry) =>
-      quarry.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (quarry.name && quarry.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
       quarry.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      quarry.operator.toLowerCase().includes(searchTerm.toLowerCase())
+      quarry.permitNumber.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -378,10 +404,11 @@ export default function QuarryManagementPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Quarry Name</TableHead>
+                  <TableHead>Proponent</TableHead>
                   <TableHead>Location</TableHead>
-                  <TableHead>Operator</TableHead>
                   <TableHead>Permit No.</TableHead>
+                  <TableHead>Date of Issuance</TableHead>
+                  <TableHead>Date of Expiration</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -389,19 +416,38 @@ export default function QuarryManagementPage() {
               <TableBody>
                 {filteredQuarries.map((quarry) => (
                   <TableRow key={quarry._id}>
-                    <TableCell className="font-medium">{quarry.name}</TableCell>
+                    <TableCell className="font-medium">{quarry.proponent || 'N/A'}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <MapPin className="h-3 w-3 text-slate-400" />
                         {quarry.location}
                       </div>
                     </TableCell>
-                    <TableCell>{quarry.operator}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <FileText className="h-3 w-3 text-slate-400" />
                         {quarry.permitNumber}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {quarry.dateOfIssuance ? (
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3 text-slate-400" />
+                          {format(new Date(quarry.dateOfIssuance), 'MMM dd, yyyy')}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">N/A</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {quarry.dateOfExpiration ? (
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3 text-slate-400" />
+                          {format(new Date(quarry.dateOfExpiration), 'MMM dd, yyyy')}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">N/A</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -469,64 +515,97 @@ export default function QuarryManagementPage() {
           </DialogHeader>
 
           <form onSubmit={handleAddQuarry} className="space-y-4">
-            {/* Row 1: Quarry Name + Operator */}
+            {/* Row 1: Date of Issuance + Date of Expiration */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Quarry Name <span className="text-red-500">*</span></Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., Bataan Quarry Site A"
-                  required
-                />
+                <Label>Date of Issuance</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !formData.dateOfIssuance && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {formData.dateOfIssuance ? format(formData.dateOfIssuance, "PPP") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarComponent
+                      mode="single"
+                      selected={formData.dateOfIssuance}
+                      onSelect={(date) => setFormData({ ...formData, dateOfIssuance: date })}
+                      captionLayout="dropdown"
+                      fromYear={1990}
+                      toYear={2050}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="operator">Operator <span className="text-red-500">*</span></Label>
-                <Input
-                  id="operator"
-                  value={formData.operator}
-                  onChange={(e) => setFormData({ ...formData, operator: e.target.value })}
-                  placeholder="e.g., ABC Mining Corp"
-                  required
-                />
+                <Label>Date of Expiration</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !formData.dateOfExpiration && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {formData.dateOfExpiration ? format(formData.dateOfExpiration, "PPP") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarComponent
+                      mode="single"
+                      selected={formData.dateOfExpiration}
+                      onSelect={(date) => setFormData({ ...formData, dateOfExpiration: date })}
+                      captionLayout="dropdown"
+                      fromYear={1990}
+                      toYear={2050}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
-            {/* Row 2: Municipality + Barangay */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="municipality">Municipality <span className="text-red-500">*</span></Label>
-                <Select 
-                  value={formData.municipality} 
-                  onValueChange={(value) => {
-                    setFormData({ 
-                      ...formData, 
-                      municipality: value, 
-                      barangay: '',
-                      location: value
-                    });
-                  }}
-                  required
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select municipality" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {getMunicipalities().map((municipality) => (
-                      <SelectItem key={municipality} value={municipality}>
-                        {municipality}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            {/* Row 2: Permit Number */}
+            <div className="space-y-2">
+              <Label htmlFor="permitNumber">Permit Number <span className="text-red-500">*</span></Label>
+              <Input
+                id="permitNumber"
+                value={formData.permitNumber}
+                onChange={(e) => setFormData({ ...formData, permitNumber: e.target.value })}
+                placeholder="e.g., PQ-2024-001"
+                required
+              />
+            </div>
 
+            {/* Row 3: Proponent */}
+            <div className="space-y-2">
+              <Label htmlFor="proponent">Proponent <span className="text-red-500">*</span></Label>
+              <Input
+                id="proponent"
+                value={formData.proponent}
+                onChange={(e) => setFormData({ ...formData, proponent: e.target.value })}
+                placeholder="e.g., Juan Dela Cruz"
+                required
+              />
+            </div>
+
+            {/* Row 4: Barangay + Municipality */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="barangay">Barangay <span className="text-red-500">*</span></Label>
                 <Select 
-                  value={formData.barangay} 
+                  value={formData.barangay || undefined} 
                   onValueChange={(value) => {
                     setFormData({ 
                       ...formData, 
@@ -541,7 +620,7 @@ export default function QuarryManagementPage() {
                     <SelectValue placeholder={formData.municipality ? "Select barangay" : "Select municipality first"} />
                   </SelectTrigger>
                   <SelectContent className="max-h-[300px]">
-                    {formData.municipality && getBarangays(formData.municipality).map((barangay) => (
+                    {formData.municipality && getBarangays(formData.municipality).filter(b => b && b.trim() !== '').map((barangay) => (
                       <SelectItem key={barangay} value={barangay}>
                         {barangay}
                       </SelectItem>
@@ -549,34 +628,73 @@ export default function QuarryManagementPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="municipality">Municipality <span className="text-red-500">*</span></Label>
+                <Select 
+                  value={formData.municipality || undefined} 
+                  onValueChange={(value) => {
+                    setFormData({ 
+                      ...formData, 
+                      municipality: value, 
+                      barangay: '',
+                      location: value
+                    });
+                  }}
+                  required
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select municipality" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {getMunicipalities().filter(m => m && m.trim() !== '').map((municipality) => (
+                      <SelectItem key={municipality} value={municipality}>
+                        {municipality}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* Row 3: Permit Number + Contact Person + Contact Number */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Row 5: Area + Status */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="permitNumber">Permit Number <span className="text-red-500">*</span></Label>
+                <Label htmlFor="area">Area (hectares)</Label>
                 <Input
-                  id="permitNumber"
-                  value={formData.permitNumber}
-                  onChange={(e) => setFormData({ ...formData, permitNumber: e.target.value })}
-                  placeholder="e.g., PQ-2024-001"
-                  required
+                  id="area"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.area}
+                  onChange={(e) => setFormData({ ...formData, area: e.target.value })}
+                  placeholder="e.g., 10.50"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="quarryOwner">Quarry Owner <span className="text-red-500">*</span></Label>
-                <Input
-                  id="quarryOwner"
-                  value={formData.quarryOwner}
-                  onChange={(e) => setFormData({ ...formData, quarryOwner: e.target.value })}
-                  placeholder="e.g., Juan Dela Cruz"
-                  required
-                />
+                <Label htmlFor="status">Status</Label>
+                <Select 
+                  value={formData.status} 
+                  onValueChange={(value: 'Active' | 'Inactive' | 'Pending') => 
+                    setFormData({ ...formData, status: value })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Inactive">Inactive</SelectItem>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+            </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="contactNumber">Contact Number (PH)</Label>
+            {/* Row 6: Contact Number (Optional) */}
+            <div className="space-y-2">
+              <Label htmlFor="contactNumber">Contact Number (PH)</Label>
                 <Input
                   id="contactNumber"
                   type="tel"
@@ -594,30 +712,9 @@ export default function QuarryManagementPage() {
                 {formData.contactNumber && formData.contactNumber.length > 0 && formData.contactNumber.length !== 11 && (
                   <p className="text-xs text-red-500">Must be 11 digits starting with 09</p>
                 )}
-              </div>
             </div>
 
-            {/* Row 4: Status */}
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <Select 
-                value={formData.status} 
-                onValueChange={(value: 'Active' | 'Inactive' | 'Pending') => 
-                  setFormData({ ...formData, status: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Active">Active</SelectItem>
-                  <SelectItem value="Inactive">Inactive</SelectItem>
-                  <SelectItem value="Pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Row 5: Description */}
+            {/* Row 7: Description */}
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>
               <Textarea
@@ -657,10 +754,12 @@ export default function QuarryManagementPage() {
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg border-b pb-2">Basic Information</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-muted-foreground">Quarry Name</Label>
-                    <p className="font-medium">{selectedQuarry.name}</p>
-                  </div>
+                  {selectedQuarry.name && (
+                    <div>
+                      <Label className="text-muted-foreground">Quarry Name</Label>
+                      <p className="font-medium">{selectedQuarry.name}</p>
+                    </div>
+                  )}
                   <div>
                     <Label className="text-muted-foreground">Location</Label>
                     <p className="font-medium flex items-center gap-1">
@@ -669,16 +768,30 @@ export default function QuarryManagementPage() {
                     </p>
                   </div>
                   <div>
-                    <Label className="text-muted-foreground">Operator</Label>
-                    <p className="font-medium">{selectedQuarry.operator}</p>
-                  </div>
-                  <div>
                     <Label className="text-muted-foreground">Permit Number</Label>
                     <p className="font-medium flex items-center gap-1">
                       <FileText className="h-3 w-3" />
                       {selectedQuarry.permitNumber}
                     </p>
                   </div>
+                  {selectedQuarry.dateOfIssuance && (
+                    <div>
+                      <Label className="text-muted-foreground">Date of Issuance</Label>
+                      <p className="font-medium flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {format(new Date(selectedQuarry.dateOfIssuance), 'MMM dd, yyyy')}
+                      </p>
+                    </div>
+                  )}
+                  {selectedQuarry.dateOfExpiration && (
+                    <div>
+                      <Label className="text-muted-foreground">Date of Expiration</Label>
+                      <p className="font-medium flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {format(new Date(selectedQuarry.dateOfExpiration), 'MMM dd, yyyy')}
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <Label className="text-muted-foreground">Status</Label>
                     <div>
@@ -698,21 +811,30 @@ export default function QuarryManagementPage() {
                 </div>
               </div>
 
-              {/* Contact Information */}
-              {(selectedQuarry.quarryOwner || selectedQuarry.contactNumber) && (
+              {/* Proponent & Contact Information */}
+              {(selectedQuarry.proponent || selectedQuarry.area || selectedQuarry.contactNumber) && (
                 <div className="space-y-4">
-                  <h3 className="font-semibold text-lg border-b pb-2">Contact Information</h3>
+                  <h3 className="font-semibold text-lg border-b pb-2">Proponent & Contact Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {selectedQuarry.quarryOwner && (
+                    {selectedQuarry.proponent && (
                       <div>
-                        <Label className="text-muted-foreground">Quarry Owner</Label>
-                        <p className="font-medium">{selectedQuarry.quarryOwner}</p>
+                        <Label className="text-muted-foreground">Proponent</Label>
+                        <p className="font-medium">{selectedQuarry.proponent}</p>
+                      </div>
+                    )}
+                    {selectedQuarry.area && (
+                      <div>
+                        <Label className="text-muted-foreground">Area</Label>
+                        <p className="font-medium">{selectedQuarry.area} hectares</p>
                       </div>
                     )}
                     {selectedQuarry.contactNumber && (
                       <div>
                         <Label className="text-muted-foreground">Contact Number</Label>
-                        <p className="font-medium">{selectedQuarry.contactNumber}</p>
+                        <p className="font-medium flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {selectedQuarry.contactNumber}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -785,29 +907,18 @@ export default function QuarryManagementPage() {
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-name">Quarry Name <span className="text-red-500">*</span></Label>
+                  <Label htmlFor="edit-name">Quarry Name</Label>
                   <Input
                     id="edit-name"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="edit-operator">Operator <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="edit-operator"
-                    value={formData.operator}
-                    onChange={(e) => setFormData({ ...formData, operator: e.target.value })}
-                    required
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="edit-municipality">Municipality <span className="text-red-500">*</span></Label>
                   <Select 
-                    value={formData.municipality} 
+                    value={formData.municipality || undefined} 
                     onValueChange={(value) => {
                       setFormData({ 
                         ...formData, 
@@ -821,7 +932,7 @@ export default function QuarryManagementPage() {
                       <SelectValue placeholder="Select municipality" />
                     </SelectTrigger>
                     <SelectContent className="max-h-[300px]">
-                      {getMunicipalities().map((municipality) => (
+                      {getMunicipalities().filter(m => m && m.trim() !== '').map((municipality) => (
                         <SelectItem key={municipality} value={municipality}>
                           {municipality}
                         </SelectItem>
@@ -833,7 +944,7 @@ export default function QuarryManagementPage() {
                 <div className="space-y-2">
                   <Label htmlFor="edit-barangay">Barangay <span className="text-red-500">*</span></Label>
                   <Select 
-                    value={formData.barangay} 
+                    value={formData.barangay || undefined} 
                     onValueChange={(value) => {
                       setFormData({ 
                         ...formData, 
@@ -847,7 +958,7 @@ export default function QuarryManagementPage() {
                       <SelectValue placeholder={formData.municipality ? "Select barangay" : "Select municipality first"} />
                     </SelectTrigger>
                     <SelectContent className="max-h-[300px]">
-                      {formData.municipality && getBarangays(formData.municipality).map((barangay) => (
+                      {formData.municipality && getBarangays(formData.municipality).filter(b => b && b.trim() !== '').map((barangay) => (
                         <SelectItem key={barangay} value={barangay}>
                           {barangay}
                         </SelectItem>
@@ -864,6 +975,64 @@ export default function QuarryManagementPage() {
                     onChange={(e) => setFormData({ ...formData, permitNumber: e.target.value })}
                     required
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Date of Issuance</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !formData.dateOfIssuance && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {formData.dateOfIssuance ? format(formData.dateOfIssuance, "PPP") : <span>Pick a date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarComponent
+                        mode="single"
+                        selected={formData.dateOfIssuance}
+                        onSelect={(date) => setFormData({ ...formData, dateOfIssuance: date })}
+                        captionLayout="dropdown"
+                        fromYear={1990}
+                        toYear={2050}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Date of Expiration</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !formData.dateOfExpiration && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {formData.dateOfExpiration ? format(formData.dateOfExpiration, "PPP") : <span>Pick a date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarComponent
+                        mode="single"
+                        selected={formData.dateOfExpiration}
+                        onSelect={(date) => setFormData({ ...formData, dateOfExpiration: date })}
+                        captionLayout="dropdown"
+                        fromYear={1990}
+                        toYear={2050}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 <div className="space-y-2">
@@ -898,25 +1067,38 @@ export default function QuarryManagementPage() {
               </div>
             </div>
 
-            {/* Owner & Contact Information Section */}
+            {/* Proponent & Contact Information Section */}
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-slate-700 border-b pb-2">
-                Owner & Contact Information
+                Proponent & Contact Information
                 {associatedUser && <span className="text-xs text-blue-600 ml-2">(Will update user account)</span>}
               </h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-quarryOwner">Quarry Owner <span className="text-red-500">*</span></Label>
+                  <Label htmlFor="edit-proponent">Proponent <span className="text-red-500">*</span></Label>
                   <Input
-                    id="edit-quarryOwner"
-                    value={formData.quarryOwner}
-                    onChange={(e) => setFormData({ ...formData, quarryOwner: e.target.value })}
+                    id="edit-proponent"
+                    value={formData.proponent}
+                    onChange={(e) => setFormData({ ...formData, proponent: e.target.value })}
                     required
                   />
                   {associatedUser && (
                     <p className="text-xs text-blue-600">This will update the user's name</p>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-area">Area (hectares)</Label>
+                  <Input
+                    id="edit-area"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.area}
+                    onChange={(e) => setFormData({ ...formData, area: e.target.value })}
+                    placeholder="e.g., 10.50"
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -966,7 +1148,7 @@ export default function QuarryManagementPage() {
               <div className="mt-2 p-3 bg-slate-50 rounded-md border">
                 <p className="font-semibold text-slate-900">{selectedQuarry?.name}</p>
                 <p className="text-sm text-slate-600">{selectedQuarry?.location}</p>
-                <p className="text-sm text-slate-600">Owner: {selectedQuarry?.quarryOwner}</p>
+                <p className="text-sm text-slate-600">Proponent: {selectedQuarry?.proponent}</p>
               </div>
               <p className="mt-2 text-red-600 font-medium">
                 Note: This will NOT delete the associated user account if one exists.

@@ -23,7 +23,7 @@ interface Quarry {
   operator: string;
   permitNumber: string;
   status: 'Active' | 'Inactive' | 'Pending';
-  quarryOwner: string;
+  proponent: string;
   contactNumber?: string;
   description?: string;
   addedBy: {
@@ -106,13 +106,13 @@ export default function UserManagementPage() {
 
   const handleAddUser = async () => {
     try {
-      // Validation
-      if (!formData.username || !formData.name || !formData.password || !formData.contactNumber || !formData.location || !formData.company) {
-        toast.error('All required fields must be filled');
+      // Validation - only username and password are required
+      if (!formData.username || !formData.password) {
+        toast.error('Username and password are required');
         return;
       }
 
-      // Validate contact number (must be exactly 11 digits)
+      // Validate contact number if provided (must be exactly 11 digits)
       if (formData.contactNumber && formData.contactNumber.length !== 11) {
         toast.error('Contact number must be exactly 11 digits');
         return;
@@ -120,16 +120,18 @@ export default function UserManagementPage() {
 
       setLoading(true);
       
-      // Prepare user data without empty email field
-      const userData = {
+      // Prepare user data - only include fields that have values
+      const userData: any = {
         username: formData.username,
-        name: formData.name,
         password: formData.password,
-        contactNumber: formData.contactNumber,
-        location: formData.location,
-        company: formData.company,
         role: formData.role,
       };
+      
+      // Only add optional fields if they have values
+      if (formData.name && formData.name.trim() !== '') userData.name = formData.name;
+      if (formData.contactNumber && formData.contactNumber.trim() !== '') userData.contactNumber = formData.contactNumber;
+      if (formData.location && formData.location.trim() !== '') userData.location = formData.location;
+      if (formData.company && formData.company.trim() !== '') userData.company = formData.company;
       
       console.log('Sending user data:', userData); // Debug log
       const newUser = await userService.createUser(userData as any);
@@ -144,6 +146,7 @@ export default function UserManagementPage() {
       resetForm();
     } catch (error: any) {
       console.error('Error creating user:', error);
+      console.error('Error response:', error.response?.data);
       toast.error('Failed to create user', {
         description: error.response?.data?.message || error.message || 'Something went wrong'
       });
@@ -269,7 +272,7 @@ export default function UserManagementPage() {
     
     if (selectedQuarry) {
       // Generate suggested username from owner name (lowercase, no spaces)
-      const suggestedUsername = selectedQuarry.quarryOwner
+      const suggestedUsername = selectedQuarry.proponent
         .toLowerCase()
         .replace(/\s+/g, '')
         .replace(/[^a-z0-9]/g, '');
@@ -277,7 +280,7 @@ export default function UserManagementPage() {
       setFormData({
         ...formData,
         username: suggestedUsername, // Auto-fill suggested username
-        name: selectedQuarry.quarryOwner,
+        name: selectedQuarry.proponent,
         contactNumber: selectedQuarry.contactNumber || '',
         location: selectedQuarry.location,
         company: selectedQuarry.name,
@@ -305,7 +308,7 @@ export default function UserManagementPage() {
   const availableQuarries = quarries.filter(quarry => {
     // Check if any user has this quarry owner's name
     return !users.some(user => 
-      user.name.toLowerCase() === quarry.quarryOwner.toLowerCase() && 
+      user.name.toLowerCase() === quarry.proponent?.toLowerCase() && 
       user.role === 'user'
     );
   });
@@ -383,7 +386,7 @@ export default function UserManagementPage() {
                     <div className="space-y-2">
                       <Label htmlFor="quarry" className="text-sm font-medium">
                         <Building2 className="h-3 w-3 inline mr-1" />
-                        Select Quarry Owner <span className="text-red-500">*</span>
+                        Select Quarry Owner
                       </Label>
                       <Select value={selectedQuarryId} onValueChange={handleQuarrySelect}>
                         <SelectTrigger className="h-10 text-base">
@@ -397,7 +400,7 @@ export default function UserManagementPage() {
                           ) : (
                             availableQuarries.map((quarry) => (
                               <SelectItem key={quarry._id} value={quarry._id}>
-                                {quarry.quarryOwner} - {quarry.name}
+                                {quarry.proponent} - {quarry.name}
                               </SelectItem>
                             ))
                           )}
@@ -415,24 +418,11 @@ export default function UserManagementPage() {
                     <div className="space-y-2">
                       <Label htmlFor="name" className="text-sm font-medium">
                         <UserIcon className="h-3 w-3 inline mr-1" />
-                        Full Name (Owner)
+                        Proponent
                       </Label>
                       <Input
                         id="name"
                         value={formData.name}
-                        disabled
-                        className="h-10 text-base bg-slate-50"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="company" className="text-sm font-medium">
-                        <Building2 className="h-3 w-3 inline mr-1" />
-                        Quarry Name
-                      </Label>
-                      <Input
-                        id="company"
-                        value={formData.company}
                         disabled
                         className="h-10 text-base bg-slate-50"
                       />
@@ -477,7 +467,7 @@ export default function UserManagementPage() {
                   <div className="space-y-2">
                     <Label htmlFor="username" className="text-sm font-medium">
                       <UserIcon className="h-3 w-3 inline mr-1" />
-                      Username <span className="text-red-500">*</span>
+                      Username
                     </Label>
                     <Input
                       id="username"
@@ -493,7 +483,7 @@ export default function UserManagementPage() {
                   <div className="space-y-2">
                     <Label htmlFor="password" className="text-sm font-medium">
                       <Lock className="h-3 w-3 inline mr-1" />
-                      Password <span className="text-red-500">*</span>
+                      Password
                     </Label>
                     <Input
                       id="password"
@@ -510,7 +500,7 @@ export default function UserManagementPage() {
                   <div className="space-y-2">
                     <Label htmlFor="role" className="text-sm font-medium">
                       <Shield className="h-3 w-3 inline mr-1" />
-                      Role <span className="text-red-500">*</span>
+                      Role
                     </Label>
                     <Select value={formData.role} onValueChange={(value: 'user' | 'admin') => setFormData({ ...formData, role: value })}>
                       <SelectTrigger className="h-10 text-base">

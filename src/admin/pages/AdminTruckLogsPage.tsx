@@ -6,7 +6,9 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Pagination,
   PaginationContent,
@@ -22,7 +24,9 @@ import {
   Download,
   RefreshCw,
   FileText,
-  Eye
+  Eye,
+  Pencil,
+  Trash2
 } from 'lucide-react';
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -37,10 +41,11 @@ interface AdminTruckLog {
     _id: string;
     name: string;
     location: string;
-    quarryOwner: string;
+    proponent: string;
   };
   logType: 'in' | 'out';
   truckCount: number;
+  truckStatus?: 'empty' | 'half-loaded' | 'full';
   notes?: string;
   loggedBy: {
     _id: string;
@@ -67,6 +72,11 @@ export default function AdminTruckLogsPage() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string>('');
   const [excelDialogOpen, setExcelDialogOpen] = useState(false);
   const [excelDateRange, setExcelDateRange] = useState<DateRangeType>('today');
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedLog, setSelectedLog] = useState<AdminTruckLog | null>(null);
+  const [editTime, setEditTime] = useState('');
+  const [editDate, setEditDate] = useState<Date | undefined>(undefined);
+  const [editTruckStatus, setEditTruckStatus] = useState<'empty' | 'half-loaded' | 'full'>('full');
   const itemsPerPage = 10;
 
   // Fetch logs
@@ -107,6 +117,84 @@ export default function AdminTruckLogsPage() {
     }
   };
 
+  // Open edit dialog
+  const handleEditClick = (log: AdminTruckLog) => {
+    setSelectedLog(log);
+    // Format time as HH:MM for input
+    const logDate = new Date(log.logDate);
+    const hours = logDate.getHours().toString().padStart(2, '0');
+    const minutes = logDate.getMinutes().toString().padStart(2, '0');
+    setEditTime(`${hours}:${minutes}`);
+    setEditDate(logDate);
+    setEditTruckStatus(log.truckStatus || 'full');
+    setEditDialogOpen(true);
+  };
+
+  // Update log date and time
+  const handleUpdateTime = async () => {
+    if (!selectedLog || !editTime || !editDate) return;
+
+    try {
+      const authStorage = localStorage.getItem('auth-storage');
+      const token = authStorage ? JSON.parse(authStorage).state.token : null;
+
+      // Parse the time and combine with selected date
+      const [hours, minutes] = editTime.split(':').map(Number);
+      const newLogDate = new Date(editDate);
+      newLogDate.setHours(hours, minutes, 0, 0);
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin-truck-logs/${selectedLog._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          logDate: newLogDate.toISOString(),
+          truckCount: selectedLog.truckCount,
+          truckStatus: editTruckStatus,
+          notes: selectedLog.notes
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to update log');
+
+      toast.success('Log updated successfully');
+      setEditDialogOpen(false);
+      fetchLogs(); // Refresh logs
+    } catch (error: any) {
+      console.error('Error updating log:', error);
+      toast.error('Failed to update time');
+    }
+  };
+
+  // Delete log
+  const handleDeleteLog = async (logId: string) => {
+    if (!confirm('Are you sure you want to delete this log? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const authStorage = localStorage.getItem('auth-storage');
+      const token = authStorage ? JSON.parse(authStorage).state.token : null;
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/admin-truck-logs/${logId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to delete log');
+
+      toast.success('Log deleted successfully');
+      fetchLogs(); // Refresh logs
+    } catch (error: any) {
+      console.error('Error deleting log:', error);
+      toast.error('Failed to delete log');
+    }
+  };
+
   // Filter logs
   const filteredLogs = logs.filter(log => {
     if (logTypeFilter !== 'all' && log.logType !== logTypeFilter) return false;
@@ -114,8 +202,8 @@ export default function AdminTruckLogsPage() {
     return true;
   });
 
-  // Get unique quarries
-  const uniqueQuarries = Array.from(new Set(logs.map(log => log.quarryId.name)));
+  // Get unique quarries - filter out empty/null values
+  const uniqueQuarries = Array.from(new Set(logs.map(log => log.quarryId?.name).filter(name => name && name.trim() !== '')));
 
   // Calculate stats
   const inCount = filteredLogs.filter(log => log.logType === 'in').reduce((sum, log) => sum + log.truckCount, 0);
@@ -236,13 +324,13 @@ export default function AdminTruckLogsPage() {
     // Table with PURPLE theme
     autoTable(doc, {
       startY: 48,
-      head: [['Type', 'Quarry', 'Owner', 'Location', 'Count', 'Date', 'Time', 'Admin']],
+      head: [['Type', 'Proponent', 'Location', 'Count', 'Remarks', 'Date', 'Time', 'Admin']],
       body: pdfLogs.map((log: AdminTruckLog) => [
         log.logType.toUpperCase(),
-        log.quarryId.name,
-        log.quarryId.quarryOwner,
+        log.quarryId?.proponent || 'N/A',
         log.quarryId.location,
         log.truckCount.toString(),
+        log.truckStatus === 'full' ? 'Full' : log.truckStatus === 'half-loaded' ? 'Half-Loaded' : log.truckStatus === 'empty' ? 'Empty' : 'N/A',
         format(new Date(log.logDate), 'MMM dd, yyyy'),
         format(new Date(log.logDate), 'hh:mm a'),
         log.loggedBy?.name || 'Unknown'
@@ -321,10 +409,10 @@ export default function AdminTruckLogsPage() {
     // Logs sheet (FIRST - so it opens by default)
     const logsData = excelLogs.map((log: AdminTruckLog) => ({
       'Type': log.logType.toUpperCase(),
-      'Quarry Name': log.quarryId.name,
-      'Owner': log.quarryId.quarryOwner,
+      'Proponent': log.quarryId?.proponent || 'N/A',
       'Location': log.quarryId.location,
       'Truck Count': log.truckCount,
+      'Remarks': log.truckStatus === 'full' ? 'Full' : log.truckStatus === 'half-loaded' ? 'Half-Loaded' : log.truckStatus === 'empty' ? 'Empty' : 'N/A',
       'Date': format(new Date(log.logDate), 'MMM dd, yyyy'),
       'Time': format(new Date(log.logDate), 'hh:mm a'),
       'Logged By': log.loggedBy?.name || 'Unknown'
@@ -335,10 +423,10 @@ export default function AdminTruckLogsPage() {
     // Set column widths
     logsWS['!cols'] = [
       { wch: 10 },  // Type
-      { wch: 25 },  // Quarry Name
-      { wch: 20 },  // Owner
+      { wch: 25 },  // Proponent
       { wch: 20 },  // Location
       { wch: 12 },  // Truck Count
+      { wch: 15 },  // Remarks
       { wch: 15 },  // Date
       { wch: 12 },  // Time
       { wch: 20 }   // Logged By
@@ -519,13 +607,14 @@ export default function AdminTruckLogsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[80px]">Type</TableHead>
-                      <TableHead>Quarry Name</TableHead>
-                      <TableHead className="hidden md:table-cell">Owner</TableHead>
+                      <TableHead>Proponent</TableHead>
                       <TableHead className="hidden lg:table-cell">Location</TableHead>
                       <TableHead className="w-[80px]">Count</TableHead>
+                      <TableHead className="hidden md:table-cell">Remarks</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead className="hidden xl:table-cell">Time</TableHead>
                       <TableHead className="hidden lg:table-cell">Logged By</TableHead>
+                      <TableHead className="w-[80px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -547,18 +636,52 @@ export default function AdminTruckLogsPage() {
                             {log.logType.toUpperCase()}
                           </Badge>
                         </TableCell>
-                        <TableCell className="font-semibold">{log.quarryId.name}</TableCell>
-                        <TableCell className="hidden md:table-cell text-muted-foreground">
-                          {log.quarryId.quarryOwner}
+                        <TableCell className="font-semibold">
+                          {log.quarryId?.proponent || 'N/A'}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell text-muted-foreground text-sm">
                           {log.quarryId.location}
                         </TableCell>
                         <TableCell className="font-bold text-center">{log.truckCount}</TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <Badge 
+                            variant="outline"
+                            className={cn(
+                              log.truckStatus === 'full' ? 'bg-blue-50 text-blue-700 border-blue-300' :
+                              log.truckStatus === 'half-loaded' ? 'bg-yellow-50 text-yellow-700 border-yellow-300' :
+                              log.truckStatus === 'empty' ? 'bg-gray-50 text-gray-700 border-gray-300' :
+                              'bg-gray-50 text-gray-700 border-gray-300'
+                            )}
+                          >
+                            {log.truckStatus === 'full' ? 'Full' :
+                             log.truckStatus === 'half-loaded' ? 'Half-Loaded' :
+                             log.truckStatus === 'empty' ? 'Empty' : 'N/A'}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="font-medium">{format(new Date(log.logDate), 'MMM dd, yyyy')}</TableCell>
                         <TableCell className="hidden xl:table-cell text-muted-foreground">{format(new Date(log.logDate), 'hh:mm a')}</TableCell>
                         <TableCell className="hidden lg:table-cell text-muted-foreground">
                           {log.loggedBy?.name || 'Unknown'}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditClick(log)}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteLog(log._id)}
+                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -739,6 +862,98 @@ export default function AdminTruckLogsPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Time Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Log Time</DialogTitle>
+            <DialogDescription>
+              Update the time for this truck log entry
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedLog && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Log Details</Label>
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p><strong>Type:</strong> {selectedLog.logType.toUpperCase()}</p>
+                  <p><strong>Proponent:</strong> {selectedLog.quarryId?.proponent || 'N/A'}</p>
+                  <p><strong>Current Date:</strong> {format(new Date(selectedLog.logDate), 'MMM dd, yyyy')}</p>
+                  <p><strong>Current Time:</strong> {format(new Date(selectedLog.logDate), 'hh:mm a')}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-date">New Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !editDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {editDate ? format(editDate, 'PPP') : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={editDate}
+                      onSelect={setEditDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-time">New Time</Label>
+                <Input
+                  id="edit-time"
+                  type="time"
+                  value={editTime}
+                  onChange={(e) => setEditTime(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-truck-status">Truck Status (Remarks)</Label>
+                <Select value={editTruckStatus} onValueChange={(value: any) => setEditTruckStatus(value)}>
+                  <SelectTrigger id="edit-truck-status">
+                    <SelectValue placeholder="Select truck status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="empty">Empty</SelectItem>
+                    <SelectItem value="half-loaded">Half-Loaded</SelectItem>
+                    <SelectItem value="full">Full</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUpdateTime}
+              disabled={!editTime || !editDate}
+            >
+              Update Log
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { Plus, Search, MapPin, User, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -14,7 +16,7 @@ interface Quarry {
   _id: string;
   name: string;
   location: string;
-  quarryOwner: string;
+  proponent: string;
   operator: string;
 }
 
@@ -24,7 +26,7 @@ interface AdminTruckLog {
     _id: string;
     name: string;
     location: string;
-    quarryOwner: string;
+    proponent: string;
   };
   logType: 'in' | 'out';
   truckCount: number;
@@ -47,6 +49,7 @@ export default function ManualTruckInLogsPage() {
   const [countingQuarry, setCountingQuarry] = useState<string | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; quarry: Quarry | null }>({ open: false, quarry: null });
+  const [truckStatus, setTruckStatus] = useState<'empty' | 'half-loaded' | 'full'>('full');
 
   // Initialize WebSocket
   useEffect(() => {
@@ -155,6 +158,7 @@ export default function ManualTruckInLogsPage() {
             quarryId,
             logType: 'in',
             truckCount: 1,
+            truckStatus: truckStatus,
             logDate: new Date().toISOString()
           }),
         }
@@ -202,14 +206,16 @@ export default function ManualTruckInLogsPage() {
 
   const filteredQuarries = quarries.filter(quarry =>
     quarry.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    quarry.quarryOwner.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    quarry.proponent.toLowerCase().includes(searchTerm.toLowerCase()) ||
     quarry.location.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const filteredLogs = logs.filter(log =>
-    log.quarryId.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    log.quarryId.quarryOwner.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    log.quarryId.location.toLowerCase().includes(searchTerm.toLowerCase())
+    log.quarryId && (
+      (log.quarryId.name && log.quarryId.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (log.quarryId.proponent && log.quarryId.proponent.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (log.quarryId.location && log.quarryId.location.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
   );
 
   const totalTrucks = logs.reduce((sum, log) => sum + log.truckCount, 0);
@@ -218,6 +224,7 @@ export default function ManualTruckInLogsPage() {
     const today = format(new Date(), 'yyyy-MM-dd');
     return logs
       .filter(log => 
+        log.quarryId && 
         log.quarryId._id === quarryId && 
         format(new Date(log.logDate), 'yyyy-MM-dd') === today
       )
@@ -331,7 +338,7 @@ export default function ManualTruckInLogsPage() {
                       <h3 className="font-semibold text-slate-900 text-base">{quarry.name}</h3>
                       <div className="flex items-center gap-1 text-xs text-slate-600">
                         <User className="h-3 w-3" />
-                        <span>{quarry.quarryOwner}</span>
+                        <span>{quarry.proponent}</span>
                       </div>
                       <div className="flex items-center gap-1 text-xs text-slate-600">
                         <MapPin className="h-3 w-3" />
@@ -389,7 +396,7 @@ export default function ManualTruckInLogsPage() {
                 >
                   <div className="flex-1">
                     <div className="font-medium text-slate-900">{log.quarryId.name}</div>
-                    <div className="text-xs text-slate-600">Owner: {log.quarryId.quarryOwner}</div>
+                    <div className="text-xs text-slate-600">Proponent: {log.quarryId.proponent}</div>
                     <div className="text-xs text-slate-500">
                       {format(new Date(log.logDate), 'MMM dd, yyyy hh:mm a')} • by {log.loggedBy.name}
                     </div>
@@ -416,10 +423,26 @@ export default function ManualTruckInLogsPage() {
             </DialogDescription>
           </DialogHeader>
           {confirmDialog.quarry && (
-            <div className="space-y-2 py-4">
-              <div className="font-semibold text-slate-900">{confirmDialog.quarry.name}</div>
-              <div className="text-sm text-slate-600">Owner: {confirmDialog.quarry.quarryOwner}</div>
-              <div className="text-sm text-slate-600">Location: {confirmDialog.quarry.location}</div>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <div className="font-semibold text-slate-900">{confirmDialog.quarry.name}</div>
+                <div className="text-sm text-slate-600">Proponent: {confirmDialog.quarry.proponent}</div>
+                <div className="text-sm text-slate-600">Location: {confirmDialog.quarry.location}</div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="truck-status">Truck Status</Label>
+                <Select value={truckStatus} onValueChange={(value: any) => setTruckStatus(value)}>
+                  <SelectTrigger id="truck-status">
+                    <SelectValue placeholder="Select truck status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="empty">Empty</SelectItem>
+                    <SelectItem value="half-loaded">Half-Loaded</SelectItem>
+                    <SelectItem value="full">Full</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-0">
